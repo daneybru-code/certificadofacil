@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal de Certificados</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
+
+    :root {
+      --portal-primary: #8B278C;
+      --cert-title-color: #8B278C;
+      --cert-name-color: #2d3748;
+      --cert-border-color: #8B278C;
+    }
+
+    .bg-portal-primary { background-color: var(--portal-primary); }
+    .text-portal-primary { color: var(--portal-primary); }
+    .btn-portal-main { background-color: var(--portal-primary); color: white; transition: all 0.3s; cursor: pointer; }
+    .btn-portal-main:hover { filter: brightness(1.15); }
+
+    .cert-viewport {
+      width: 100%;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      padding: 20px 0;
+      min-height: 500px;
+    }
+
+    #certificate-container {
+      width: 1123px; /* A4 landscape @96dpi aproximado */
+      height: 794px;
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center;
+      position: relative;
+      flex-shrink: 0;
+      background-color: white;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+      transform-origin: top center;
+    }
+
+    .cert-content {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 50px 80px;
+      text-align: center;
+      font-family: 'Montserrat', sans-serif;
+      box-sizing: border-box;
+      z-index: 10;
+    }
+
+    .watermark {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) rotate(-30deg);
+      font-size: 80px;
+      color: rgba(255, 0, 0, 0.10);
+      font-weight: 900;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 100;
+      text-transform: uppercase;
+      border: 10px solid rgba(255, 0, 0, 0.10);
+      padding: 20px;
+      display: none;
+    }
+
+    .cert-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 60px;
+      color: var(--cert-title-color);
+      margin-top: 10px;
+    }
+
+    .participant-name {
+      font-size: 44px;
+      font-weight: 800;
+      color: var(--cert-name-color);
+      margin: 15px 0;
+      border-bottom: 3px solid var(--cert-border-color);
+      display: inline-block;
+      min-width: 500px;
+      text-transform: uppercase;
+    }
+
+    .signature-img { max-height: 80px; max-width: 200px; object-fit: contain; }
+    .footer-logos { max-height: 90px; max-width: 100%; object-fit: contain; }
+
+    @media (min-width: 1201px) { #certificate-container { transform: scale(0.85); } }
+    @media (max-width: 1200px) { #certificate-container { transform: scale(0.6); } }
+    @media (max-width: 800px)  { #certificate-container { transform: scale(0.4); } }
+    @media (max-width: 500px)  { #certificate-container { transform: scale(0.25); } }
+
+    #admin-lock-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.80);
+      backdrop-filter: blur(5px);
+      z-index: 9999;
+      display: none;
+      justify-content: center;
+      align-items: center;
+    }
+  </style>
+</head>
+
+<body class="bg-slate-100 min-h-screen">
+
+  <!-- MODAL ADMIN -->
+  <div id="admin-lock-overlay">
+    <div class="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center">
+      <h3 class="text-xl font-bold mb-2">Painel do Admin</h3>
+      <p class="text-xs text-slate-500 mb-4">Login via Firebase Auth (email/senha).</p>
+
+      <input type="email" id="admin-email" class="w-full border p-3 rounded-xl mb-3 text-center outline-none focus:ring-2 focus:ring-purple-500" placeholder="Email do admin">
+      <input type="password" id="admin-password" class="w-full border p-3 rounded-xl mb-4 text-center outline-none focus:ring-2 focus:ring-purple-500" placeholder="Senha">
+
+      <div class="flex gap-2">
+        <button onclick="closeAdminLock()" class="flex-1 py-3 text-slate-500 font-bold">Voltar</button>
+        <button onclick="doAdminLogin()" class="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold">Entrar</button>
+      </div>
+
+      <button onclick="doAdminLogout()" class="mt-4 text-xs text-slate-500 underline">Sair</button>
+    </div>
+  </div>
+
+  <nav class="bg-portal-primary shadow-lg p-4 border-b-4 border-white/10">
+    <div class="max-w-7xl mx-auto flex justify-between items-center px-4">
+      <div class="flex items-center gap-3">
+        <div class="bg-white p-1 rounded shadow-sm w-10 h-10 flex items-center justify-center">
+          <img id="nav-logo" src="" class="h-8 hidden" alt="Logo">
+          <span id="nav-placeholder" class="text-portal-primary font-black">C</span>
+        </div>
+        <h1 class="text-xl font-bold text-white">Certificados Online</h1>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="switchTab('participant')" class="px-4 py-2 rounded-lg bg-white text-portal-primary font-bold text-sm">Início</button>
+        <button onclick="openAdminLock()" class="px-4 py-2 rounded-lg bg-white/10 text-white font-medium hover:bg-white/20 text-sm">Painel</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ABA PARTICIPANTE -->
+  <div id="tab-participant" class="container mx-auto px-4 py-8">
+    <div class="max-w-xl mx-auto bg-white p-8 rounded-3xl shadow-xl mb-12 border border-slate-200">
+      <h2 class="text-2xl font-bold mb-6 text-center text-slate-800 uppercase">Emitir Certificado</h2>
+      <div class="space-y-4">
+        <input type="text" id="input-name" placeholder="DIGITE O SEU NOME"
+          class="w-full border-2 border-slate-100 rounded-2xl p-4 focus:ring-2 focus:ring-purple-400 outline-none transition text-xl bg-slate-50 font-medium text-center uppercase">
+        <div class="grid grid-cols-2 gap-4">
+          <button onclick="generateCertificate()" class="btn-portal-main py-4 rounded-2xl font-bold uppercase">Visualizar</button>
+          <button onclick="downloadPDF()" class="bg-slate-800 text-white py-4 rounded-2xl font-bold uppercase hover:bg-black transition">PDF</button>
+        </div>
+        <p class="text-[11px] text-slate-500 text-center">
+          Dica: se imagens externas não baixarem no PDF, hospede-as no Firebase Storage (com CORS).
+        </p>
+      </div>
+    </div>
+
+    <div class="cert-viewport">
+      <div id="certificate-container">
+        <div id="wm-label" class="watermark">TESTE</div>
+
+        <div class="cert-content">
+          <img id="view-logo-main" src="" class="h-24 object-contain mb-4" alt="">
+          <h2 class="cert-title" id="view-title">CERTIFICADO</h2>
+          <p class="text-lg mt-1 italic text-slate-600">Certificamos para os devidos fins que</p>
+
+          <div class="participant-name" id="view-participant">NOME DO ALUNO</div>
+
+          <p class="text-xl max-w-4xl mt-3 leading-relaxed text-slate-700 font-medium" id="view-text">
+            Configure o certificado no painel do admin.
+          </p>
+
+          <div class="flex justify-around w-full mt-10">
+            <div class="flex flex-col items-center">
+              <img id="view-sig-1" src="" class="signature-img mb-1" alt="">
+              <div class="w-48 h-px bg-slate-400"></div>
+              <span class="text-sm font-bold mt-2" id="view-signer-1">-</span>
+              <span class="text-[10px] text-slate-500 uppercase" id="view-role-1">-</span>
+            </div>
+
+            <div class="flex flex-col items-center">
+              <img id="view-sig-2" src="" class="signature-img mb-1" alt="">
+              <div class="w-48 h-px bg-slate-400"></div>
+              <span class="text-sm font-bold mt-2" id="view-signer-2">-</span>
+              <span class="text-[10px] text-slate-500 uppercase" id="view-role-2">-</span>
+            </div>
+          </div>
+
+          <div class="mt-auto">
+            <img id="view-logo-support" src="" class="footer-logos" alt="">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ABA ADMIN -->
+  <div id="tab-admin" class="container mx-auto px-4 hidden py-8">
+    <div class="bg-white p-8 rounded-3xl shadow-2xl max-w-6xl mx-auto border border-slate-200">
+      <div class="flex justify-between items-center mb-8 border-b pb-4">
+        <h2 class="text-2xl font-bold">Configuração</h2>
+        <div id="sync-status" class="px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-400 italic">Estado: Desconectado</div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div class="space-y-4">
+          <div class="p-4 bg-slate-50 rounded-xl">
+            <label class="block text-xs font-bold uppercase mb-2">Marca d'água (modo teste)</label>
+            <select id="config-paid" onchange="triggerUpdate()" class="w-full p-2 rounded border">
+              <option value="false">Ativada</option>
+              <option value="true">Remover</option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="text-[10px] uppercase font-bold">Cor portal</label>
+              <input type="color" id="color-portal" oninput="triggerUpdate()" class="w-full h-10 rounded">
+            </div>
+            <div>
+              <label class="text-[10px] uppercase font-bold">Cor título</label>
+              <input type="color" id="color-title" oninput="triggerUpdate()" class="w-full h-10 rounded">
+            </div>
+            <div>
+              <label class="text-[10px] uppercase font-bold">Linha nome</label>
+              <input type="color" id="color-border" oninput="triggerUpdate()" class="w-full h-10 rounded">
+            </div>
+          </div>
+
+          <input type="text" id="edit-title" oninput="triggerUpdate()" class="w-full border p-3 rounded-xl" placeholder="Título (ex: CERTIFICADO)">
+          <textarea id="edit-text" oninput="triggerUpdate()" class="w-full border p-3 rounded-xl h-32" placeholder="Texto do certificado"></textarea>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="p-2 border rounded-xl">
+              <input type="text" id="edit-signer-1" oninput="triggerUpdate()" class="w-full text-xs p-1 mb-1" placeholder="Nome assinante 1">
+              <input type="file" accept="image/*" onchange="handleFileUpload(event, 'sig1')" class="text-[10px] w-full">
+              <input type="text" id="edit-role-1" oninput="triggerUpdate()" class="w-full text-xs p-1 mt-2" placeholder="Cargo assinante 1 (opcional)">
+            </div>
+            <div class="p-2 border rounded-xl">
+              <input type="text" id="edit-signer-2" oninput="triggerUpdate()" class="w-full text-xs p-1 mb-1" placeholder="Nome assinante 2">
+              <input type="file" accept="image/*" onchange="handleFileUpload(event, 'sig2')" class="text-[10px] w-full">
+              <input type="text" id="edit-role-2" oninput="triggerUpdate()" class="w-full text-xs p-1 mt-2" placeholder="Cargo assinante 2 (opcional)">
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <h3 class="font-bold text-slate-400 uppercase text-xs">Imagens</h3>
+
+          <div class="p-3 border rounded-xl bg-slate-50">
+            <label class="text-[10px] font-bold">FUNDO DO CERTIFICADO (recomendo 1920x1080 ou A4 landscape)</label>
+            <input type="text" id="url-bg" oninput="handleUrlInput('bg')" class="w-full text-[11px] p-2 border rounded mb-2" placeholder="URL direto (https://...)">
+            <input type="file" accept="image/*" onchange="handleFileUpload(event, 'bg')" class="text-[10px]">
+          </div>
+
+          <div class="p-3 border rounded-xl bg-slate-50">
+            <label class="text-[10px] font-bold">LOGO PRINCIPAL</label>
+            <input type="text" id="url-logo" oninput="handleUrlInput('logo')" class="w-full text-[11px] p-2 border rounded mb-2" placeholder="URL direto (https://...)">
+            <input type="file" accept="image/*" onchange="handleFileUpload(event, 'logo')" class="text-[10px]">
+          </div>
+
+          <div class="p-3 border rounded-xl bg-slate-50">
+            <label class="text-[10px] font-bold">RODAPÉ (realização/patrocínios)</label>
+            <input type="text" id="url-support" oninput="handleUrlInput('support')" class="w-full text-[11px] p-2 border rounded mb-2" placeholder="URL direto (https://...)">
+            <input type="file" accept="image/*" onchange="handleFileUpload(event, 'support')" class="text-[10px]">
+          </div>
+
+          <div class="p-3 rounded-xl border bg-amber-50 text-amber-900 text-[11px] leading-relaxed">
+            <b>Alerta de viabilidade:</b> salvar imagens como Base64 dentro do Firestore pode estourar o limite de 1 MiB por documento.
+            Se for usar fundos grandes, suba no <b>Firebase Storage</b> e cole o link aqui (fica leve e sem erro).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // Estado local
+    // =========================
+    let localData = {
+      paid: false,
+      colors: { portal: '#8B278C', title: '#8B278C', border: '#8B278C' },
+      texts: { title: 'CERTIFICADO', body: 'Certificamos que o(a) aluno(a)...', s1: '', r1: '', s2: '', r2: '' },
+      imgs: { bg: '', logo: '', support: '', sig1: '', sig2: '' }
+    };
+
+    let syncTimeout;
+
+    // UI helpers
+    function openAdminLock() { document.getElementById('admin-lock-overlay').style.display = 'flex'; }
+    function closeAdminLock() { document.getElementById('admin-lock-overlay').style.display = 'none'; }
+
+    function switchTab(tab) {
+      document.getElementById('tab-participant').classList.toggle('hidden', tab !== 'participant');
+      document.getElementById('tab-admin').classList.toggle('hidden', tab !== 'admin');
+    }
+
+    function applyData(data) {
+      if (!data) return;
+
+      document.documentElement.style.setProperty('--portal-primary', data.colors?.portal || '#8B278C');
+      document.documentElement.style.setProperty('--cert-title-color', data.colors?.title || '#8B278C');
+      document.documentElement.style.setProperty('--cert-border-color', data.colors?.border || '#8B278C');
+
+      document.getElementById('wm-label').style.display = data.paid ? 'none' : 'block';
+      document.getElementById('view-title').innerText = data.texts?.title || 'CERTIFICADO';
+      document.getElementById('view-text').innerText = data.texts?.body || '';
+      document.getElementById('view-signer-1').innerText = data.texts?.s1 || '-';
+      document.getElementById('view-role-1').innerText   = data.texts?.r1 || '-';
+      document.getElementById('view-signer-2').innerText = data.texts?.s2 || '-';
+      document.getElementById('view-role-2').innerText   = data.texts?.r2 || '-';
+
+      if (data.imgs?.bg) document.getElementById('certificate-container').style.backgroundImage = `url('${data.imgs.bg}')`;
+
+      if (data.imgs?.logo) {
+        document.getElementById('nav-logo').src = data.imgs.logo;
+        document.getElementById('nav-logo').classList.remove('hidden');
+        document.getElementById('nav-placeholder').classList.add('hidden');
+        document.getElementById('view-logo-main').src = data.imgs.logo;
+      }
+
+      if (data.imgs?.support) document.getElementById('view-logo-support').src = data.imgs.support;
+      if (data.imgs?.sig1) document.getElementById('view-sig-1').src = data.imgs.sig1;
+      if (data.imgs?.sig2) document.getElementById('view-sig-2').src = data.imgs.sig2;
+    }
+
+    function syncAdminInputsFromData() {
+      const syncInput = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = val || '';
+      };
+
+      document.getElementById('config-paid').value = String(!!localData.paid);
+      document.getElementById('color-portal').value = localData.colors?.portal || '#8B278C';
+      document.getElementById('color-title').value = localData.colors?.title || '#8B278C';
+      document.getElementById('color-border').value = localData.colors?.border || '#8B278C';
+
+      syncInput('edit-title', localData.texts?.title);
+      syncInput('edit-text', localData.texts?.body);
+      syncInput('edit-signer-1', localData.texts?.s1);
+      syncInput('edit-role-1', localData.texts?.r1);
+      syncInput('edit-signer-2', localData.texts?.s2);
+      syncInput('edit-role-2', localData.texts?.r2);
+
+      syncInput('url-bg', localData.imgs?.bg);
+      syncInput('url-logo', localData.imgs?.logo);
+      syncInput('url-support', localData.imgs?.support);
+    }
+
+    function triggerUpdate() {
+      localData.paid = document.getElementById('config-paid').value === "true";
+      localData.colors = {
+        portal: document.getElementById('color-portal').value,
+        title: document.getElementById('color-title').value,
+        border: document.getElementById('color-border').value
+      };
+      localData.texts = {
+        title: document.getElementById('edit-title').value,
+        body: document.getElementById('edit-text').value,
+        s1: document.getElementById('edit-signer-1').value,
+        r1: document.getElementById('edit-role-1').value,
+        s2: document.getElementById('edit-signer-2').value,
+        r2: document.getElementById('edit-role-2').value
+      };
+
+      applyData(localData);
+
+      clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('saveToCloud', { detail: localData }));
+      }, 600);
+    }
+
+    function handleUrlInput(key) {
+      const el = document.getElementById(`url-${key}`);
+      if (!el) return;
+      const val = el.value?.trim();
+      if (val) {
+        localData.imgs[key] = val;
+        triggerUpdate();
+      }
+    }
+
+    async function fileToDataUrl(file, key) {
+      // PNG para logos/assinaturas (precisa transparência)
+      const wantPng = (key === 'sig1' || key === 'sig2' || key === 'logo' || key === 'support');
+      const maxW = (key === 'bg') ? 2000 : 800;
+
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Falha ao ler arquivo"));
+        reader.onload = (e) => resolve(e.target.result);
+        reader.readAsDataURL(file);
+      });
+
+      // Se não for imagem, aborta
+      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+        throw new Error("Arquivo inválido (não é imagem).");
+      }
+
+      // Redimensionar via canvas
+      const img = new Image();
+      img.src = dataUrl;
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("Não foi possível carregar a imagem."));
+      });
+
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxW) {
+        height = Math.round(height * (maxW / width));
+        width = maxW;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+
+      // Fundo transparente quando PNG (assinaturas)
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const out = wantPng
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', 0.75);
+
+      // Check básico de tamanho (Firestore doc ~ 1 MiB)
+      const approxBytes = Math.ceil((out.length * 3) / 4); // base64 bytes approx
+      if (approxBytes > 750_000) {
+        alert("Essa imagem ficou grande demais para salvar dentro do Firestore. Use URL (Firebase Storage) para evitar erro.");
+      }
+
+      return out;
+    }
+
+    async function handleFileUpload(event, key) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const out = await fileToDataUrl(file, key);
+        localData.imgs[key] = out;
+        triggerUpdate();
+      } catch (e) {
+        console.error(e);
+        alert("Falha ao processar imagem. Tente outra (ou use URL).");
+      }
+    }
+
+    function generateCertificate() {
+      const n = document.getElementById('input-name').value?.trim();
+      if (!n) return alert("Por favor, digite o nome.");
+      document.getElementById('view-participant').innerText = n.toUpperCase();
+    }
+
+    function downloadPDF() {
+      const el = document.getElementById('certificate-container');
+      const opt = {
+        margin: 0,
+        filename: 'certificado.pdf',
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: null },
+        jsPDF: { orientation: 'landscape', unit: 'pt', format: 'a4' }
+      };
+      html2pdf().from(el).set(opt).save();
+    }
+
+    // Aplica defaults já no load (sem depender da nuvem)
+    applyData(localData);
+    window.addEventListener('DOMContentLoaded', () => syncAdminInputsFromData());
+  </script>
+
+  <script type="module">
+    // =========================
+    // Firebase (compatível com Netlify / qualquer hosting)
+    // =========================
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 1) COLE AQUI O firebaseConfig (Firebase Console > Project settings > Your apps > Web app)
+    // Isso NÃO é segredo. A segurança de verdade é feita nas RULES do Firestore.
+    const firebaseConfig = {
+      apiKey: "COLE_AQUI",
+      authDomain: "COLE_AQUI",
+      projectId: "COLE_AQUI",
+      storageBucket: "COLE_AQUI",
+      messagingSenderId: "COLE_AQUI",
+      appId: "COLE_AQUI"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Onde fica a config
+    const docRef = doc(db, "config", "main");
+
+    // UI status
+    const setStatus = (type, text) => {
+      const s = document.getElementById('sync-status');
+      if (!s) return;
+      if (type === "ok") {
+        s.innerText = text || "Estado: Conectado";
+        s.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-green-100 text-green-700";
+      } else if (type === "err") {
+        s.innerText = text || "Erro";
+        s.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-red-100 text-red-700";
+      } else {
+        s.innerText = text || "Estado: Desconectado";
+        s.className = "px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-500";
+      }
+    };
+
+    // Listener (read-only público)
+    onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        window.localData = snap.data();
+        // Reusa função global applyData
+        window.applyData(window.localData);
+        window.syncAdminInputsFromData?.();
+      }
+    }, (err) => {
+      console.error("Erro no Firestore:", err);
+      setStatus("err", "Erro no Firestore (rules/CORS?)");
+    });
+
+    // Auth state (admin)
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setStatus("ok", "Estado: Admin logado");
+        // Se admin já está logado, entra direto no painel
+        window.switchTab?.("admin");
+      } else {
+        setStatus("idle", "Estado: Visitante");
+      }
+    });
+
+    // Admin login/logout expostos pro HTML
+    window.doAdminLogin = async function doAdminLogin() {
+      const email = document.getElementById("admin-email").value?.trim();
+      const pass = document.getElementById("admin-password").value;
+      if (!email || !pass) return alert("Informe email e senha.");
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        window.closeAdminLock?.();
+        window.switchTab?.("admin");
+      } catch (e) {
+        console.error(e);
+        alert("Falha no login. Verifique email/senha.");
+      }
+    };
+
+    window.doAdminLogout = async function doAdminLogout() {
+      try {
+        await signOut(auth);
+        alert("Você saiu do admin.");
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    // Salvar config na nuvem (só funciona se RULES permitirem)
+    window.addEventListener('saveToCloud', async (e) => {
+      // Só salva se estiver logado
+      if (!auth.currentUser) return;
+      try {
+        await setDoc(docRef, e.detail, { merge: true });
+        setStatus("ok", "Estado: Salvo");
+      } catch (err) {
+        console.error("Erro ao salvar:", err);
+        setStatus("err", "Sem permissão para salvar");
+        alert("Sem permissão para salvar. Configure Firestore Rules (admin-only).");
+      }
+    });
+  </script>
+
+</body>
+</html>
